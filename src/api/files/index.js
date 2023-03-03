@@ -11,10 +11,8 @@ filesRouter.post(
   multer().single("productImg"),
   async (req, res, next) => {
     try {
-      console.log(req.file);
       if (req.file !== undefined) {
         const originalFileExtension = extname(req.file.originalname);
-        console.log(originalFileExtension);
         const fileName = req.params.productID + originalFileExtension;
         await saveProductsImg(fileName, req.file.buffer);
         res.send({ message: "file uploaded" });
