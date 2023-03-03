@@ -31,14 +31,19 @@ productsRouter.post(
 productsRouter.get("/", async (req, res, next) => {
   try {
     const productList = await getProducts();
-
+    console.log("req:", req.query);
     if (req.query && req.query.category) {
       const fillteredProducts = productList.filter(
         (product) => product.category === req.query.category
       );
       res.status(200).send(fillteredProducts);
-    } else {
+    } else if (
+      Object.keys(req.query).length === 0 &&
+      req.query.constructor === Object
+    ) {
       res.status(200).send(productList);
+    } else {
+      next(createHttpError(404, `Not a valid route!`));
     }
   } catch (error) {
     next(error);
