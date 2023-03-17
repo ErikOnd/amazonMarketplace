@@ -1,8 +1,8 @@
 import Express from "express";
-import { nanoid } from "nanoid";
 import createHttpError from "http-errors";
 import { checkProductsSchema, triggerBadRequest } from "./validator.js";
-import { getProducts, writeProducts } from "../../lib/fs-tools.js";
+import ProductModel from "./model.js";
+import q2m from "query-to-mongo";
 
 const productsRouter = Express.Router();
 
@@ -12,16 +12,9 @@ productsRouter.post(
   triggerBadRequest,
   async (req, res, next) => {
     try {
-      const newProduct = {
-        ...req.body,
-        id: nanoid(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      const productList = await getProducts();
-      productList.push(newProduct);
-      await writeProducts(productList);
-      res.status(201).send({ id: newProduct.id });
+      const newProduct = await ProductModel(req.body);
+      const { _id } = await newProduct.save();
+      res.status(201).send({ id: _id });
     } catch (error) {
       next(error);
     }
@@ -30,20 +23,16 @@ productsRouter.post(
 
 productsRouter.get("/", async (req, res, next) => {
   try {
-    const productList = await getProducts();
-    if (req.query && req.query.category) {
-      const fillteredProducts = productList.filter(
-        (product) => product.category === req.query.category
-      );
-      res.status(200).send(fillteredProducts);
-    } else if (
-      Object.keys(req.query).length === 0 &&
-      req.query.constructor === Object
-    ) {
-      res.status(200).send(productList);
-    } else {
-      next(createHttpError(404, `Invalid route!`));
-    }
+    const mongoQuery = q2m(req.query);
+    const { products, total } = await ProductModel.enableProductFilter(
+      mongoQuery
+    );
+    res.send({
+      links: mongoQuery.links(`${process.env.FE_PROD_URL}/blogPosts`, total),
+      total,
+      numberOfPages: Math.ceil(total / mongoQuery.options.limit),
+      products,
+    });
   } catch (error) {
     next(error);
   }
@@ -51,8 +40,7 @@ productsRouter.get("/", async (req, res, next) => {
 
 productsRouter.get("/:id", triggerBadRequest, async (req, res, next) => {
   try {
-    const productList = await getProducts();
-    const product = productList.find((product) => product.id === req.params.id);
+    const product = await ProductModel.findById(req.params.id);
     if (product) {
       res.status(200).send(product);
     } else {
@@ -67,38 +55,29 @@ productsRouter.get("/:id", triggerBadRequest, async (req, res, next) => {
 
 productsRouter.put("/:id", triggerBadRequest, async (req, res, next) => {
   try {
-    const productList = await getProducts();
-    const index = productList.findIndex(
-      (product) => product.id === req.params.id
+    const productToEdit = await ProductModel.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
     );
-    if (index !== -1) {
-      const oldProduct = productList[index];
-      const updatedProduct = {
-        ...oldProduct,
-        ...req.body,
-        updatedAt: new Date(),
-      };
 
-      productList[index] = updatedProduct;
-      await writeProducts(productList);
-      res.status(200).send(updatedProduct);
+    if (productToEdit) {
+      res.status(200).send(productToEdit);
     } else {
       createHttpError(404, `Product with the id ${req.params.id} not found!`);
     }
-  } catch (error) {}
+  } catch (error) {
+    next(error);
+  }
 });
 
 productsRouter.delete("/:id", async (req, res, next) => {
   try {
-    const productList = await getProducts();
-    const updatedProductList = productList.filter(
-      (product) => product.id !== req.params.id
-    );
-    if (productList.length !== updatedProductList.length) {
-      writeProducts(updatedProductList);
+    const productToDelete = await ProductModel.findByIdAndDelete(req.params.id);
+    if (productToDelete) {
       res.status(204).send();
     } else {
-      next(createHttpError(404, `Product with id ${req.params.id} not found!`)); //
+      next(createHttpError(404, `Product with id ${req.params.id} not found!`));
     }
   } catch (error) {
     next(error);
